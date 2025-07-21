@@ -129,3 +129,4 @@ Shuffle Map 阶段结束后，AQE 统计输出数据量，自动合并相邻小�
         处理流程
         1. 切块，则将大分区按目标大小（advisoryPartitionSizeInBytes）切块
         2. 复制，关联表的对应分区复制到多个task,保持join的完整性
+        ![alt text](image-4.png)
