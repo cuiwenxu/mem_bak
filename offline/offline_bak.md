@@ -62,3 +62,55 @@ External Shuffle Service（ESS）是Spark中<mark>​​解耦计算与数据服
 - 可靠性提升​​：Executor故障后，ESS仍可提供其生成的Shuffle数据。
 - ​支持动态资源分配​​：释放闲置Executor时保留Shuffle数据，实现资源弹性伸缩。
 - 减轻Executor压力​​：避免Executor因服务Shuffle请求导致GC停顿或网络阻塞
+
+# spark两种算子的区别
+
+| 维度 | transformation | action |
+| --- | --- | --- |
+| 执行时机 | 惰性执行（仅记录操作到dag,不立即计算） | 立即执行（触发dag提交到集群计算） |
+| 返回值 | 返回新的rdd或dataframe,dataset | 返回非分布式数据（如数值、文件路径） |
+
+常见算子
+1. Transformation 算子（延迟执行）​​
+    - ​​Value 型​​（单列操作）
+        - map(func)：逐元素转换（rdd.map(x => x*2)）
+        - filter(func)：过滤满足条件的元素（rdd.filter(_ > 10)）
+        - flatMap(func)：扁平化嵌套结构（text.flatMap(_.split(" "))）
+    - ​Key-Value 型​​（键值对操作）：
+        - reduceByKey(func)：分区内预聚合（pairs.reduceByKey(_ + _)）
+        - join(otherRDD)：内连接两个 RDD（rdd1.join(rdd2)）
+        - groupByKey()：按 Key 分组（易导致数据倾斜，优先用 reduceByKey）
+    - ​结构优化型​​：
+        - repartition(numPartitions)：调整分区数（触发 Shuffle）
+        - coalesce(numPartitions)：合并分区（避免 Shuffle）
+2. Action 算子（立即执行）​​
+    - 结果收集型​​：
+        - collect()：​​慎用​​！全量数据拉取到 Driver，易 OOM（替代方案：take(n)）
+        - count()：统计元素总数
+    - 聚合计算型​​：
+        - reduce(func)：全局聚合（rdd.reduce(_ + _)）
+        - countByKey()：统计每个 Key 的出现次数
+    - 数据输出型​​：
+        - saveAsTextFile(path)：保存结果到 HDFS/本地
+        - foreach(func)：遍历元素（如写入数据库）
+
+# 宽依赖和窄依赖
+宽窄依赖是spark生成物理执行计划时的一个概念，是划分stage的依据
+- 窄：父分区仅被一个子分区依赖，可合并为同一stage
+- 宽：父分区被多个子分区依赖，需要shuffle并划分新stage
+
+### 为什么要划分宽窄?
+可以根据不同依赖进行优化
+- 窄依赖可以流水线化，连续的窄依赖可以合并到同一task，避免中间结果落盘
+- 宽依赖shuffle优化，合并小文件，排序索引
+
+# DAG生成过程
+- 1. 构建逻辑计划
+- 2. 逻辑计划优化
+    - 谓词下推和列裁剪
+- 3. 生成物理计划
+    - 确定具体的执行策略，排序算法
+    - 确定宽依赖和窄依赖
+- 4. stage划分与调度
+    - 从action反向遍历，遇到宽依赖则切分stage
+    - 任务生成，每个stage划分为多个task（task数=分区数），由TaskScheduler分发到Executor执行
