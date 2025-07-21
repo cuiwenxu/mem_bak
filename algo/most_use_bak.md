@@ -137,3 +137,4 @@ JobMaster 创建：当作业提交后，Dispatcher 负责为该作业创建一�
 REST API 端点：Dispatcher 暴露 REST 接口（默认端口 8081），用于查询集群状态、提交作业、取消作业等操作。
 
 示例：通过 http://<jobmanager-host>:8081/jobs 可以查看当前运行的作业列表。
+

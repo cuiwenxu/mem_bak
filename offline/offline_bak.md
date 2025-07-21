@@ -105,12 +105,27 @@ External Shuffle Service（ESS）是Spark中<mark>​​解耦计算与数据服
 - 宽依赖shuffle优化，合并小文件，排序索引
 
 # DAG生成过程
-- 1. 构建逻辑计划
-- 2. 逻辑计划优化
+1. 构建逻辑计划
+2. 逻辑计划优化
     - 谓词下推和列裁剪
-- 3. 生成物理计划
+3. 生成物理计划
     - 确定具体的执行策略，排序算法
     - 确定宽依赖和窄依赖
-- 4. stage划分与调度
+4. stage划分与调度
     - 从action反向遍历，遇到宽依赖则切分stage
     - 任务生成，每个stage划分为多个task（task数=分区数），由TaskScheduler分发到Executor执行
+
+# spark AQE做了哪些优化
+1. 动态分区合并
+Shuffle Map 阶段结束后，AQE 统计输出数据量，自动合并相邻小分区，目标分区大小由 spark.sql.adaptive.advisoryPartitionSizeInBytes（默认 64MB）控制
+2. 动态join策略优化
+    - 广播join自动转化  
+        运行时精确统计表大小，若小表尺寸低于广播阈值（默认 10MB），自动将 Sort Merge Join 转为 Broadcast Hash Join
+    - 本地shuffle读取优化   
+        Broadcast Join 转换后，Reduce Task 直接读取本地节点的 Shuffle 中间文件，避免网络传输    
+        参数：spark.sql.adaptive.localShuffleReader.enabled=true
+    - 数据倾斜自动优化  
+        spark3 检测到分区大小 > 中位数 * spark.sql.adaptive.shewJoin.shewedPartitionFactor(默认5) 且 > spark.sql.adaptive.skewJoin.skewedPartitionThreadholdInBytes(默认256m)
+        处理流程
+        1. 切块，则将大分区按目标大小（advisoryPartitionSizeInBytes）切块
+        2. 复制，关联表的对应分区复制到多个task,保持join的完整性
