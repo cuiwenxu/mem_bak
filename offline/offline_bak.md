@@ -1,3 +1,6 @@
+# rdd怎么理解
+rdd全称弹性分布式数据集（resilient distributed dataset）,其有4大特性
+
 # spark3 shuffle fetch faild为什么更频繁
 
 - ​资源需求提升​​，Spark 3 的 ​​AQE（自适应查询执行）​动态调整分区数，<mark>可能突发增加 Shuffle 数据量</mark>，若集群资源未预留缓冲，易触发 Fetch Failed。而传统 Spark 2 的分区数固定，资源规划更可控。
@@ -115,6 +118,18 @@ External Shuffle Service（ESS）是Spark中<mark>​​解耦计算与数据服
     - 从action反向遍历，遇到宽依赖则切分stage
     - 任务生成，每个stage划分为多个task（task数=分区数），由TaskScheduler分发到Executor执行
 
+# spark AQE根据哪些文件做优化
+根据<mark>Shuffle Map阶段输出的中间文件</mark>。我们知道，每个 Map Task 都会输出以 data 为后缀的数据文件，还有以 index 为结尾的索引文件，这些文件统称为中间文件。每个 data 文件的大小、空文件数量与占比、每个 Reduce Task 对应的分区大小，所有这些基于中间文件的统计值构成了 AQE 进行优化的信息来源。
+
+# spark AQE代码解析
+AQE 既定的规则和策略主要有4个，分为1个逻辑优化规则和3个物理优化策略。我把这些规则与策略，和相应的 AQE 特性，以及每个特性仰仗的统计信息，都汇总到了如下的表格中。
+| 优化类型 | 规则与策略 | AQE特性 | 统计信息 |
+| --- | --- | --- | --- |
+| 逻辑计划 | DemoteBroadcastHashJoin | join策略调整 | map阶段中间文件 |
+| 物理计划 | OptimizeLocalShuffleReader | join策略调整 | map阶段中间文件 |
+| 物理计划 | CoalesceShufflePartitions | 自动分区合并 | reduce task分区大小 |
+| 物理计划 | OptimizedSkewedJoin | 自动倾斜处理 | reduce task分区大小 |
+
 # spark AQE做了哪些优化
 1. 动态分区合并
 Shuffle Map 阶段结束后，AQE 统计输出数据量，自动合并相邻小分区，目标分区大小由 spark.sql.adaptive.advisoryPartitionSizeInBytes（默认 64MB）控制
@@ -124,9 +139,12 @@ Shuffle Map 阶段结束后，AQE 统计输出数据量，自动合并相邻小�
     - 本地shuffle读取优化   
         Broadcast Join 转换后，Reduce Task 直接读取本地节点的 Shuffle 中间文件，避免网络传输    
         参数：spark.sql.adaptive.localShuffleReader.enabled=true
-    - 数据倾斜自动优化  
-        spark3 检测到分区大小 > 中位数 * spark.sql.adaptive.shewJoin.shewedPartitionFactor(默认5) 且 > spark.sql.adaptive.skewJoin.skewedPartitionThreadholdInBytes(默认256m)
-        处理流程
-        1. 切块，则将大分区按目标大小（advisoryPartitionSizeInBytes）切块
-        2. 复制，关联表的对应分区复制到多个task,保持join的完整性
+3. 数据倾斜自动优化  
+    spark3 检测到分区大小 > 中位数 * spark.sql.adaptive.skewJoin.skewedPartitionFactor(默认5) 且 > spark.sql.adaptive.skewJoin.skewedPartitionThreadholdInBytes(默认256m)
+    处理流程
+    1. 切块，则将大分区按目标大小（advisoryPartitionSizeInBytes）切块
+    2. 复制，关联表的对应分区复制到多个task,保持join的完整性    
         ![alt text](image-4.png)
+4. 动态分区裁剪（Dynamic Partition Pruning, DPP）
+    运行时根据维表过滤结果，跳过事实表无关分区，减少 I/O。
+
