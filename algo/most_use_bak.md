@@ -82,24 +82,53 @@ public class ClimbStair {
 
 需要注意的是一笔订单可能对应多个广告事件，需要归属到最近的那一条
 ```java
-思路，按照uid分区，使用sum over遇到广告事件则+1，产出一个tag，然后按照tag分组
-select uid,sum(case when event='ad' then 1 else 0 end) over(partition by uid 
+思路
+1.按照uid分区，使用sum over遇到广告事件则+1，产出一个tag
+2.根据该uid,tag做关联，tag差一个为相关联事件
+
+with tmp_log as (
+select 1 as uid,'ord' as event_type,10 as ts,100 as cz_amt,'' as ad_id
+union all
+select 1 as uid,'ad' as event_type,9 as ts,0 as cz_amt,'a' as ad_id
+union all
+select 1 as uid,'ad' as event_type,8 as ts,0 as cz_amt,'b' as ad_id
+),
+
+开窗打标
+with tmp_tag as (
+select *,sum(case when event_type='ad' then 1 else 0 end) over(partition by uid 
                                           order by ts desc,event_rn desc
                                           rows between UNBOUNDED preceding and current row) as gp_tag
 from 
 (
-select uid,event,ad_id,ts,1 as event_rn
-from log
-where event='ad'
+select uid,event_type,ad_id,ts,1 as event_rn
+from tmp_log
+where event_type='ad'
 
 union all
 
-select uid,event,'' as ad_id,ts,0 as event_rn
-from log
-where event='ord'
-)
+select uid,event_type,ad_id,ts,0 as event_rn
+from tmp_log
+where event_type='ord'
+) a 
+),
 
-select 
-from 
+select a.*,b.ad_id
+from
+(
+select *
+from tmp_tag
+where event_type='ord'
+) a 
+left join 
+(
+select *
+from tmp_tag
+where event_type='ad'
+) b 
+on a.uid=b.uid
+and a.gp_tag=(b.gp_tag-1)
 ``` 
+总结，a事件要归因到b上，第一步打标（使用sum(case when event_type='b' then 1 else 0 end) over(partition by uid order by ts desc,event_type desc) as tag)
+第二步，自关联，gp_tag差一个为同一组
  
