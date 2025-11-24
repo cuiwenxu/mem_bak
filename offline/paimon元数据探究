@@ -1,0 +1,9 @@
+1. paimon 元数据是怎么修复的
+2. paimon系统表在哪，和catalog类型有关吗
+3. export-manifest 脚本
+4. call statements 原理，怎么添加一个call statements
+CALL system.rebuild_snapshots('my_table'); 是什么语法，为什么加了paimon的jar包就可以解析
+
+
+# orphan files检测，怎么清除orphan files
+
