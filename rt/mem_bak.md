@@ -186,3 +186,4 @@ StateTtlConfig ttlConfig = StateTtlConfig.newBuilder(Time.hours(6))
 	- ​缺陷​​：
 		- 历史状态丢失​​：旧值被永久覆盖，无法回溯中间状态（如无法得知 100→150 的变更过程）。
 		- 无法修正错误​​：若因乱序需修正结果，覆盖写只能依赖最新值，导致累计误差
+
