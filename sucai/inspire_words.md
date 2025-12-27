@@ -1,0 +1,1 @@
+1.There is only one god and his name is Death. And there is only one thing we say to Death: ‘Not today‘ [Game of Thrones]
