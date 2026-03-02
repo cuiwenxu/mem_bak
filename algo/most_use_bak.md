@@ -131,4 +131,6 @@ and a.gp_tag=(b.gp_tag-1)
 ``` 
 总结，a事件要归因到b上，第一步打标（使用sum(case when event_type='b' then 1 else 0 end) over(partition by uid order by ts desc,event_type desc) as tag)
 第二步，自关联，gp_tag差一个为同一组
+
+
  
