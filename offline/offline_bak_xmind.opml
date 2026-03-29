@@ -1,0 +1,364 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Spark离线知识整理</title>
+  </head>
+  <body>
+    <outline text="Spark离线知识整理">
+      <outline text="RDD怎么理解">
+        <outline text="定义">
+          <outline text="弹性分布式数据集"/>
+          <outline text="Resilient Distributed Dataset"/>
+        </outline>
+        <outline text="核心特性">
+          <outline text="弹性"/>
+          <outline text="分布式"/>
+          <outline text="不可变"/>
+          <outline text="容错"/>
+        </outline>
+        <outline text="价值">
+          <outline text="支持并行计算"/>
+          <outline text="支持血缘恢复"/>
+          <outline text="便于切分与调度"/>
+        </outline>
+      </outline>
+      <outline text="Spark3 shuffle fetch failed为什么更频繁">
+        <outline text="核心原因">
+          <outline text="AQE运行时动态调整分区"/>
+          <outline text="Shuffle数据量可能突增"/>
+          <outline text="集群资源没有预留缓冲"/>
+        </outline>
+        <outline text="典型现象">
+          <outline text="FetchFailedException"/>
+          <outline text="Stage反复重试"/>
+        </outline>
+        <outline text="解决方式">
+          <outline text="初级">
+            <outline text="提升Executor内存"/>
+            <outline text="减少Shuffle数据量"/>
+          </outline>
+          <outline text="高级">
+            <outline text="使用Remote Shuffle Service"/>
+          </outline>
+        </outline>
+      </outline>
+      <outline text="Remote Shuffle Service">
+        <outline text="原生Spark shuffle痛点">
+          <outline text="大Shuffle容易OOM"/>
+          <outline text="Dynamic Allocation导致Executor不稳定"/>
+          <outline text="Shuffle连接数为M*R"/>
+          <outline text="网络与磁盘压力大"/>
+        </outline>
+        <outline text="核心组件">
+          <outline text="Coordinator">
+            <outline text="管理Shuffle Server"/>
+            <outline text="存储资源元数据"/>
+            <outline text="负责任务分配"/>
+          </outline>
+          <outline text="Shuffle Server">
+            <outline text="接收Shuffle数据"/>
+            <outline text="聚合并写入存储"/>
+            <outline text="提供读取能力"/>
+          </outline>
+          <outline text="Shuffle Client">
+            <outline text="与Coordinator通信"/>
+            <outline text="与Shuffle Server通信"/>
+            <outline text="维护应用心跳"/>
+          </outline>
+        </outline>
+        <outline text="整体流程">
+          <outline text="Driver获取分配信息"/>
+          <outline text="Driver注册Shuffle信息"/>
+          <outline text="Executor发送Block到Shuffle Server"/>
+          <outline text="Shuffle Server落盘"/>
+          <outline text="Executor回报结果"/>
+          <outline text="读任务获取成功写Task信息"/>
+          <outline text="读任务读取Shuffle元数据"/>
+          <outline text="读任务从存储读取数据"/>
+        </outline>
+        <outline text="核心价值">
+          <outline text="存算分离"/>
+          <outline text="更稳定"/>
+          <outline text="降低网络与磁盘压力"/>
+        </outline>
+      </outline>
+      <outline text="External Shuffle Service">
+        <outline text="问题背景">
+          <outline text="Executor同时负责计算和Shuffle服务"/>
+          <outline text="Executor退出会删除本地Shuffle数据"/>
+          <outline text="不利于动态资源分配"/>
+        </outline>
+        <outline text="工作机制">
+          <outline text="作为独立常驻进程运行"/>
+          <outline text="Executor启动时注册Shuffle文件位置"/>
+          <outline text="Reduce通过OpenBlocks请求数据"/>
+        </outline>
+        <outline text="核心价值">
+          <outline text="Executor故障后仍可读取Shuffle数据"/>
+          <outline text="支持动态资源分配"/>
+          <outline text="减轻Executor服务Shuffle的压力"/>
+        </outline>
+        <outline text="关键字">
+          <outline text="RegisterExecutor"/>
+          <outline text="OpenBlocks"/>
+          <outline text="YarnShuffleService"/>
+        </outline>
+      </outline>
+      <outline text="Spark两种算子的区别">
+        <outline text="Transformation">
+          <outline text="惰性执行"/>
+          <outline text="返回新的RDD或DataFrame"/>
+          <outline text="仅记录操作到DAG"/>
+          <outline text="常见算子">
+            <outline text="map"/>
+            <outline text="filter"/>
+            <outline text="flatMap"/>
+            <outline text="reduceByKey"/>
+            <outline text="join"/>
+            <outline text="groupByKey"/>
+            <outline text="repartition"/>
+            <outline text="coalesce"/>
+          </outline>
+        </outline>
+        <outline text="Action">
+          <outline text="立即执行"/>
+          <outline text="触发DAG提交"/>
+          <outline text="返回非分布式结果"/>
+          <outline text="常见算子">
+            <outline text="collect"/>
+            <outline text="count"/>
+            <outline text="reduce"/>
+            <outline text="countByKey"/>
+            <outline text="saveAsTextFile"/>
+            <outline text="foreach"/>
+          </outline>
+        </outline>
+        <outline text="记忆方式">
+          <outline text="Transformation描述过程"/>
+          <outline text="Action真正求值"/>
+        </outline>
+      </outline>
+      <outline text="宽依赖和窄依赖">
+        <outline text="窄依赖">
+          <outline text="一个父分区仅被一个子分区依赖"/>
+          <outline text="可合并为同一Stage"/>
+          <outline text="可以流水线化"/>
+        </outline>
+        <outline text="宽依赖">
+          <outline text="一个父分区被多个子分区依赖"/>
+          <outline text="需要Shuffle"/>
+          <outline text="需要切新Stage"/>
+        </outline>
+        <outline text="为什么要区分">
+          <outline text="便于Stage划分"/>
+          <outline text="便于执行优化"/>
+          <outline text="窄依赖避免中间结果落盘"/>
+          <outline text="宽依赖重点优化Shuffle"/>
+        </outline>
+      </outline>
+      <outline text="DAG生成过程">
+        <outline text="1 构建逻辑计划"/>
+        <outline text="2 逻辑计划优化">
+          <outline text="谓词下推"/>
+          <outline text="列裁剪"/>
+        </outline>
+        <outline text="3 生成物理计划">
+          <outline text="确定执行策略"/>
+          <outline text="确定排序算法"/>
+          <outline text="确定宽依赖和窄依赖"/>
+        </outline>
+        <outline text="4 Stage划分与调度">
+          <outline text="从Action反向遍历"/>
+          <outline text="遇到宽依赖切分Stage"/>
+          <outline text="每个Stage生成多个Task"/>
+          <outline text="TaskScheduler分发到Executor"/>
+        </outline>
+      </outline>
+      <outline text="Spark AQE根据哪些文件做优化">
+        <outline text="统计来源">
+          <outline text="Shuffle Map阶段中间文件"/>
+          <outline text="data文件"/>
+          <outline text="index文件"/>
+        </outline>
+        <outline text="关键信息">
+          <outline text="data文件大小"/>
+          <outline text="空文件数量与占比"/>
+          <outline text="每个Reduce分区大小"/>
+        </outline>
+        <outline text="用途">
+          <outline text="Join策略调整"/>
+          <outline text="分区合并"/>
+          <outline text="倾斜处理"/>
+        </outline>
+      </outline>
+      <outline text="Spark AQE代码解析">
+        <outline text="1个逻辑规则">
+          <outline text="DemoteBroadcastHashJoin"/>
+        </outline>
+        <outline text="3个物理策略">
+          <outline text="OptimizeLocalShuffleReader"/>
+          <outline text="CoalesceShufflePartitions"/>
+          <outline text="OptimizedSkewedJoin"/>
+        </outline>
+        <outline text="依赖统计信息">
+          <outline text="map阶段中间文件"/>
+          <outline text="reduce task分区大小"/>
+        </outline>
+      </outline>
+      <outline text="Spark AQE做了哪些优化">
+        <outline text="动态分区合并">
+          <outline text="统计Map输出数据量"/>
+          <outline text="自动合并相邻小分区"/>
+          <outline text="目标大小由advisoryPartitionSizeInBytes控制"/>
+        </outline>
+        <outline text="动态Join策略优化">
+          <outline text="广播Join自动转换">
+            <outline text="小表低于广播阈值"/>
+            <outline text="Sort Merge Join转Broadcast Hash Join"/>
+          </outline>
+          <outline text="本地Shuffle读取优化">
+            <outline text="减少网络传输"/>
+            <outline text="参数为localShuffleReader.enabled"/>
+          </outline>
+        </outline>
+        <outline text="数据倾斜自动优化">
+          <outline text="大分区检测"/>
+          <outline text="切块"/>
+          <outline text="复制关联表对应分区"/>
+        </outline>
+        <outline text="动态分区裁剪">
+          <outline text="根据维表过滤结果"/>
+          <outline text="跳过事实表无关分区"/>
+          <outline text="减少I/O"/>
+        </outline>
+      </outline>
+      <outline text="Spark2升级Spark3会遇到哪些问题">
+        <outline text="升级本质">
+          <outline text="不只是代码兼容"/>
+          <outline text="更是结果口径变化"/>
+          <outline text="更是性能模型变化"/>
+          <outline text="更是依赖生态变化"/>
+        </outline>
+        <outline text="1 依赖和运行环境兼容">
+          <outline text="Scala版本变化"/>
+          <outline text="JDK版本差异"/>
+          <outline text="Hive和Hadoop版本矩阵"/>
+          <outline text="Kafka和各类Connector版本兼容"/>
+          <outline text="常见报错">
+            <outline text="NoSuchMethodError"/>
+            <outline text="ClassNotFoundException"/>
+          </outline>
+        </outline>
+        <outline text="2 SQL结果不一致">
+          <outline text="时间解析更严格"/>
+          <outline text="日期重基线差异"/>
+          <outline text="类型赋值和Cast更严格"/>
+          <outline text="ANSI行为更严格"/>
+          <outline text="同一SQL结果条数可能变化"/>
+        </outline>
+        <outline text="3 时间和时区问题">
+          <outline text="重点字段">
+            <outline text="date"/>
+            <outline text="timestamp"/>
+            <outline text="字符串时间列"/>
+          </outline>
+          <outline text="重点场景">
+            <outline text="分区字段"/>
+            <outline text="窗口统计"/>
+            <outline text="跨天口径"/>
+          </outline>
+          <outline text="重点函数">
+            <outline text="from_unixtime"/>
+            <outline text="unix_timestamp"/>
+            <outline text="to_date"/>
+            <outline text="to_timestamp"/>
+            <outline text="date_format"/>
+          </outline>
+        </outline>
+        <outline text="4 执行计划和性能变化">
+          <outline text="优化器更积极"/>
+          <outline text="AQE运行时改计划"/>
+          <outline text="Join策略变化"/>
+          <outline text="Reduce分区数变化"/>
+          <outline text="Task模型变化"/>
+          <outline text="常见问题">
+            <outline text="Task数突然变少"/>
+            <outline text="Task数突然变多"/>
+            <outline text="广播Join导致OOM"/>
+            <outline text="长尾更明显"/>
+          </outline>
+        </outline>
+        <outline text="5 Shuffle稳定性问题">
+          <outline text="AQE放大Shuffle行为变化"/>
+          <outline text="集群问题更容易暴露">
+            <outline text="Executor内存偏小"/>
+            <outline text="ESS不稳定"/>
+            <outline text="Dynamic Allocation抢占频繁"/>
+            <outline text="网络和磁盘接近瓶颈"/>
+          </outline>
+          <outline text="典型现象">
+            <outline text="FetchFailedException"/>
+            <outline text="Shuffle读写时间突增"/>
+            <outline text="Stage反复重试"/>
+          </outline>
+          <outline text="处理思路">
+            <outline text="先看AQE是否介入"/>
+            <outline text="再看Join策略是否变化"/>
+            <outline text="重评估内存和分区参数"/>
+            <outline text="大规模场景考虑ESS或RSS"/>
+          </outline>
+        </outline>
+        <outline text="6 UDF和自定义函数问题">
+          <outline text="时间解析UDF"/>
+          <outline text="JSON解析UDF"/>
+          <outline text="Null容错逻辑"/>
+          <outline text="Decimal计算"/>
+          <outline text="自定义聚合函数"/>
+        </outline>
+        <outline text="7 数据源和表格式问题">
+          <outline text="Hive Catalog兼容"/>
+          <outline text="Parquet和ORC Schema演进"/>
+          <outline text="日期重基线"/>
+          <outline text="Iceberg和Hudi和Paimon连接器兼容"/>
+        </outline>
+        <outline text="8 常见配置回退点">
+          <outline text="spark.sql.legacy.timeParserPolicy"/>
+          <outline text="spark.sql.ansi.enabled"/>
+          <outline text="spark.sql.storeAssignmentPolicy"/>
+          <outline text="parquet datetimeRebase"/>
+          <outline text="orc datetimeRebase"/>
+          <outline text="spark.sql.adaptive.enabled"/>
+          <outline text="spark.sql.adaptive.skewJoin.enabled"/>
+          <outline text="spark.sql.adaptive.localShuffleReader.enabled"/>
+          <outline text="spark.sql.autoBroadcastJoinThreshold"/>
+          <outline text="spark.sql.shuffle.partitions"/>
+        </outline>
+        <outline text="9 推荐升级步骤">
+          <outline text="先做依赖盘点"/>
+          <outline text="核心任务双跑"/>
+          <outline text="Explain对比物理计划"/>
+          <outline text="高风险任务单独验证"/>
+          <outline text="保留兼容参数模板"/>
+          <outline text="结果对齐后再做性能调优"/>
+        </outline>
+        <outline text="10 面试怎么回答">
+          <outline text="先讲三类问题">
+            <outline text="依赖兼容"/>
+            <outline text="结果口径"/>
+            <outline text="性能稳定性"/>
+          </outline>
+          <outline text="再举两个具体例子">
+            <outline text="时间解析更严格"/>
+            <outline text="AQE导致Join和Shuffle行为变化"/>
+          </outline>
+          <outline text="最后讲落地动作">
+            <outline text="双跑比对"/>
+            <outline text="参数回退"/>
+            <outline text="Explain对比"/>
+            <outline text="灰度上线"/>
+          </outline>
+        </outline>
+      </outline>
+    </outline>
+  </body>
+</opml>

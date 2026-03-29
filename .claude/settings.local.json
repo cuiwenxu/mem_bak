@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for dir:*)",
+      "Bash(do echo:*)",
+      "Read(//Users/cui/Documents/gitcode/mem_bak/**)",
+      "Bash(done)"
+  }
+}

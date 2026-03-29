@@ -1,0 +1,291 @@
+# Spark离线知识整理
+
+## RDD怎么理解
+- 定义
+  - 弹性分布式数据集
+  - Resilient Distributed Dataset
+- 核心特性
+  - 弹性
+  - 分布式
+  - 不可变
+  - 容错
+- 价值
+  - 支持并行计算
+  - 支持血缘恢复
+  - 便于切分与调度
+
+## Spark3 shuffle fetch failed为什么更频繁
+- 核心原因
+  - AQE运行时动态调整分区
+  - Shuffle数据量可能突增
+  - 集群资源没有预留缓冲
+- 典型现象
+  - FetchFailedException
+  - Stage反复重试
+- 解决方式
+  - 初级
+    - 提升Executor内存
+    - 减少Shuffle数据量
+  - 高级
+    - 使用Remote Shuffle Service
+
+## Remote Shuffle Service
+- 原生Spark shuffle痛点
+  - 大Shuffle容易OOM
+  - Dynamic Allocation导致Executor不稳定
+  - Shuffle连接数为M*R
+  - 网络与磁盘压力大
+- 核心组件
+  - Coordinator
+    - 管理Shuffle Server
+    - 存储资源元数据
+    - 负责任务分配
+  - Shuffle Server
+    - 接收Shuffle数据
+    - 聚合并写入存储
+    - 提供读取能力
+  - Shuffle Client
+    - 与Coordinator通信
+    - 与Shuffle Server通信
+    - 维护应用心跳
+- 整体流程
+  - Driver获取分配信息
+  - Driver注册Shuffle信息
+  - Executor发送Block到Shuffle Server
+  - Shuffle Server落盘
+  - Executor回报结果
+  - 读任务获取成功写Task信息
+  - 读任务读取Shuffle元数据
+  - 读任务从存储读取数据
+- 核心价值
+  - 存算分离
+  - 更稳定
+  - 降低网络与磁盘压力
+
+## External Shuffle Service
+- 问题背景
+  - Executor同时负责计算和Shuffle服务
+  - Executor退出会删除本地Shuffle数据
+  - 不利于动态资源分配
+- 工作机制
+  - 作为独立常驻进程运行
+  - Executor启动时注册Shuffle文件位置
+  - Reduce通过OpenBlocks请求数据
+- 核心价值
+  - Executor故障后仍可读取Shuffle数据
+  - 支持动态资源分配
+  - 减轻Executor服务Shuffle的压力
+- 关键字
+  - RegisterExecutor
+  - OpenBlocks
+  - YarnShuffleService
+
+## Spark两种算子的区别
+- Transformation
+  - 惰性执行
+  - 返回新的RDD或DataFrame
+  - 仅记录操作到DAG
+  - 常见算子
+    - map
+    - filter
+    - flatMap
+    - reduceByKey
+    - join
+    - groupByKey
+    - repartition
+    - coalesce
+- Action
+  - 立即执行
+  - 触发DAG提交
+  - 返回非分布式结果
+  - 常见算子
+    - collect
+    - count
+    - reduce
+    - countByKey
+    - saveAsTextFile
+    - foreach
+- 记忆方式
+  - Transformation描述过程
+  - Action真正求值
+
+## 宽依赖和窄依赖
+- 窄依赖
+  - 一个父分区仅被一个子分区依赖
+  - 可合并为同一Stage
+  - 可以流水线化
+- 宽依赖
+  - 一个父分区被多个子分区依赖
+  - 需要Shuffle
+  - 需要切新Stage
+- 为什么要区分
+  - 便于Stage划分
+  - 便于执行优化
+  - 窄依赖避免中间结果落盘
+  - 宽依赖重点优化Shuffle
+
+## DAG生成过程
+- 1 构建逻辑计划
+- 2 逻辑计划优化
+  - 谓词下推
+  - 列裁剪
+- 3 生成物理计划
+  - 确定执行策略
+  - 确定排序算法
+  - 确定宽依赖和窄依赖
+- 4 Stage划分与调度
+  - 从Action反向遍历
+  - 遇到宽依赖切分Stage
+  - 每个Stage生成多个Task
+  - TaskScheduler分发到Executor
+
+## Spark AQE根据哪些文件做优化
+- 统计来源
+  - Shuffle Map阶段中间文件
+  - data文件
+  - index文件
+- 关键信息
+  - data文件大小
+  - 空文件数量与占比
+  - 每个Reduce分区大小
+- 用途
+  - Join策略调整
+  - 分区合并
+  - 倾斜处理
+
+## Spark AQE代码解析
+- 1个逻辑规则
+  - DemoteBroadcastHashJoin
+- 3个物理策略
+  - OptimizeLocalShuffleReader
+  - CoalesceShufflePartitions
+  - OptimizedSkewedJoin
+- 依赖统计信息
+  - map阶段中间文件
+  - reduce task分区大小
+
+## Spark AQE做了哪些优化
+- 动态分区合并
+  - 统计Map输出数据量
+  - 自动合并相邻小分区
+  - 目标大小由advisoryPartitionSizeInBytes控制
+- 动态Join策略优化
+  - 广播Join自动转换
+    - 小表低于广播阈值
+    - Sort Merge Join转Broadcast Hash Join
+  - 本地Shuffle读取优化
+    - 减少网络传输
+    - 参数为localShuffleReader.enabled
+- 数据倾斜自动优化
+  - 大分区检测
+  - 切块
+  - 复制关联表对应分区
+- 动态分区裁剪
+  - 根据维表过滤结果
+  - 跳过事实表无关分区
+  - 减少I/O
+
+## Spark2升级Spark3会遇到哪些问题
+- 升级本质
+  - 不只是代码兼容
+  - 更是结果口径变化
+  - 更是性能模型变化
+  - 更是依赖生态变化
+- 1 依赖和运行环境兼容
+  - Scala版本变化
+  - JDK版本差异
+  - Hive和Hadoop版本矩阵
+  - Kafka和各类Connector版本兼容
+  - 常见报错
+    - NoSuchMethodError
+    - ClassNotFoundException
+- 2 SQL结果不一致
+  - 时间解析更严格
+  - 日期重基线差异
+  - 类型赋值和Cast更严格
+  - ANSI行为更严格
+  - 同一SQL结果条数可能变化
+- 3 时间和时区问题
+  - 重点字段
+    - date
+    - timestamp
+    - 字符串时间列
+  - 重点场景
+    - 分区字段
+    - 窗口统计
+    - 跨天口径
+  - 重点函数
+    - from_unixtime
+    - unix_timestamp
+    - to_date
+    - to_timestamp
+    - date_format
+- 4 执行计划和性能变化
+  - 优化器更积极
+  - AQE运行时改计划
+  - Join策略变化
+  - Reduce分区数变化
+  - Task模型变化
+  - 常见问题
+    - Task数突然变少
+    - Task数突然变多
+    - 广播Join导致OOM
+    - 长尾更明显
+- 5 Shuffle稳定性问题
+  - AQE放大Shuffle行为变化
+  - 集群问题更容易暴露
+    - Executor内存偏小
+    - ESS不稳定
+    - Dynamic Allocation抢占频繁
+    - 网络和磁盘接近瓶颈
+  - 典型现象
+    - FetchFailedException
+    - Shuffle读写时间突增
+    - Stage反复重试
+  - 处理思路
+    - 先看AQE是否介入
+    - 再看Join策略是否变化
+    - 重评估内存和分区参数
+    - 大规模场景考虑ESS或RSS
+- 6 UDF和自定义函数问题
+  - 时间解析UDF
+  - JSON解析UDF
+  - Null容错逻辑
+  - Decimal计算
+  - 自定义聚合函数
+- 7 数据源和表格式问题
+  - Hive Catalog兼容
+  - Parquet和ORC Schema演进
+  - 日期重基线
+  - Iceberg和Hudi和Paimon连接器兼容
+- 8 常见配置回退点
+  - spark.sql.legacy.timeParserPolicy
+  - spark.sql.ansi.enabled
+  - spark.sql.storeAssignmentPolicy
+  - parquet datetimeRebase
+  - orc datetimeRebase
+  - spark.sql.adaptive.enabled
+  - spark.sql.adaptive.skewJoin.enabled
+  - spark.sql.adaptive.localShuffleReader.enabled
+  - spark.sql.autoBroadcastJoinThreshold
+  - spark.sql.shuffle.partitions
+- 9 推荐升级步骤
+  - 先做依赖盘点
+  - 核心任务双跑
+  - Explain对比物理计划
+  - 高风险任务单独验证
+  - 保留兼容参数模板
+  - 结果对齐后再做性能调优
+- 10 面试怎么回答
+  - 先讲三类问题
+    - 依赖兼容
+    - 结果口径
+    - 性能稳定性
+  - 再举两个具体例子
+    - 时间解析更严格
+    - AQE导致Join和Shuffle行为变化
+  - 最后讲落地动作
+    - 双跑比对
+    - 参数回退
+    - Explain对比
+    - 灰度上线

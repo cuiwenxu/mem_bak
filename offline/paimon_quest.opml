@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Apache Paimon 常见面试题整理</title>
+  </head>
+  <body>
+    <outline text="Apache Paimon 常见面试题整理">
+      <outline text="一句话讲清 Paimon">
+        <outline text="定位">
+          <outline text="面向实时湖仓场景的表格式存储系统"/>
+          <outline text="把流式写入、主键更新、快照管理、元数据管理、多引擎查询整合在一起"/>
+        </outline>
+        <outline text="核心能力">
+          <outline text="支持 Append Table 与 Primary Key Table"/>
+          <outline text="主键表底层基于 LSM 结构"/>
+          <outline text="通过 snapshot + manifest + data file 组织数据与元数据"/>
+        </outline>
+        <outline text="典型场景">
+          <outline text="CDC 入湖"/>
+          <outline text="主键去重"/>
+          <outline text="宽表汇总"/>
+          <outline text="明细表与状态表统一存储"/>
+        </outline>
+      </outline>
+      <outline text="高频考点地图">
+        <outline text="1 定位与适用场景"/>
+        <outline text="2 表类型、Bucket、Compaction 等存储模型"/>
+        <outline text="3 Snapshot / Manifest / Schema 等元数据结构"/>
+        <outline text="4 Catalog、系统表、sys 数据库"/>
+        <outline text="5 Flink SQL 里的 CALL、Procedure、Action Jar"/>
+        <outline text="6 运维与故障恢复：回滚、孤儿文件、并发冲突"/>
+      </outline>
+      <outline text="核心存储模型">
+        <outline text="Paimon 是什么 适合什么场景">
+          <outline text="标准回答">
+            <outline text="面向实时更新场景的湖仓表存储"/>
+            <outline text="特别适合 CDC、宽表汇总、主键去重、实时可见场景"/>
+            <outline text="强调流式写入、主键更新、增量消费，而不只是离线分析"/>
+          </outline>
+          <outline text="追问">
+            <outline text="为什么 CDC 更适合 Paimon"/>
+            <outline text="和 Iceberg / Hudi 的差异是什么"/>
+          </outline>
+          <outline text="关键词">
+            <outline text="实时湖仓"/>
+            <outline text="主键表"/>
+            <outline text="流批一体"/>
+            <outline text="CDC"/>
+            <outline text="增量消费"/>
+          </outline>
+        </outline>
+        <outline text="Paimon 的核心表类型">
+          <outline text="Append Table">
+            <outline text="适合纯追加数据"/>
+            <outline text="读取时不需要主键合并"/>
+          </outline>
+          <outline text="Primary Key Table">
+            <outline text="适合 upsert / delete / CDC 场景"/>
+            <outline text="查询时通常需要做 merge"/>
+            <outline text="核心不是覆盖文件，而是通过 LSM 逐步合并"/>
+          </outline>
+        </outline>
+        <outline text="主键表为什么常被说成是 LSM">
+          <outline text="写入不是重写整张大文件"/>
+          <outline text="会持续生成新的分层文件，再通过 compaction 合并"/>
+          <outline text="每个 bucket 可以看成一棵局部 LSM tree"/>
+          <outline text="优势是写入吞吐更好"/>
+          <outline text="代价是查询侧有 merge 成本"/>
+        </outline>
+        <outline text="Snapshot Manifest Data File 的关系">
+          <outline text="核心链路">
+            <outline text="snapshot -&gt; manifest list -&gt; manifest -&gt; data file"/>
+          </outline>
+          <outline text="各层职责">
+            <outline text="Snapshot：某次提交后的全局版本入口"/>
+            <outline text="Manifest List：记录该快照引用了哪些 manifest"/>
+            <outline text="Manifest File：记录新增/删除了哪些 data file"/>
+            <outline text="Data File：真正存放数据"/>
+          </outline>
+          <outline text="面试加分点">
+            <outline text="排障、恢复、文件引用分析都沿这条链向下追"/>
+          </outline>
+        </outline>
+        <outline text="Bucket 有哪些模式 为什么重要">
+          <outline text="固定 bucket">
+            <outline text="bucket &gt; 0"/>
+            <outline text="按 hash 分配"/>
+            <outline text="容易理解，但扩缩桶是运维问题"/>
+          </outline>
+          <outline text="动态 bucket">
+            <outline text="常见写法是 bucket = -1"/>
+            <outline text="Paimon 维护 key 到 bucket 的映射"/>
+            <outline text="能自动扩容"/>
+          </outline>
+          <outline text="为什么重要">
+            <outline text="影响并行度"/>
+            <outline text="影响小文件数量"/>
+            <outline text="影响写入热点"/>
+            <outline text="影响恢复复杂度"/>
+          </outline>
+        </outline>
+        <outline text="Compaction 为什么重要">
+          <outline text="主键表会积累越来越多 sorted runs"/>
+          <outline text="不做 compaction 会导致读取 merge 文件越来越多"/>
+          <outline text="严重时会带来性能下降和内存压力"/>
+          <outline text="本质是拿写放大换读性能"/>
+          <outline text="运维重点是避免小文件过多与 compaction 过重两个极端"/>
+        </outline>
+      </outline>
+      <outline text="元数据与恢复">
+        <outline text="Paimon 的元数据存在哪里">
+          <outline text="表路径下包含 schema、snapshot、manifest、index、statistics 等文件"/>
+          <outline text="底层可以落在 HDFS、对象存储、本地文件系统等"/>
+          <outline text="具体位置取决于表路径与 catalog 配置"/>
+        </outline>
+        <outline text="Paimon 元数据怎么修复">
+          <outline text="先判断损坏层级">
+            <outline text="catalog 元信息"/>
+            <outline text="snapshot"/>
+            <outline text="manifest"/>
+            <outline text="data file"/>
+          </outline>
+          <outline text="优先使用官方能力">
+            <outline text="rollback / rollback_to"/>
+            <outline text="repair"/>
+            <outline text="重新同步 catalog 元信息"/>
+          </outline>
+          <outline text="标准思路">
+            <outline text="沿 snapshot -&gt; manifest -&gt; data file 找影响范围"/>
+            <outline text="判断回滚、重建表、重灌数据还是用备份恢复"/>
+          </outline>
+          <outline text="加分点">
+            <outline text="修复本质是恢复快照引用链一致性，而不是手工改 JSON"/>
+          </outline>
+        </outline>
+        <outline text="能不能只修复单个 bucket 的文件">
+          <outline text="不能简单当成独立问题处理"/>
+          <outline text="关键要看该文件是否仍被 manifest / snapshot 引用"/>
+          <outline text="如果最新活跃 snapshot 已不再引用，影响可能有限"/>
+          <outline text="如果当前活跃 snapshot 还引用，就要考虑回滚、重放、补写或备份恢复"/>
+        </outline>
+        <outline text="为什么恢复时要先查 bucket 文件到 snapshot 的映射">
+          <outline text="判断线上读是否受影响"/>
+          <outline text="判断回滚到哪个 snapshot 安全"/>
+          <outline text="判断哪些下游增量消费会被波及"/>
+          <outline text="判断是否存在更低成本的恢复点"/>
+        </outline>
+        <outline text="orphan files 是什么 怎么检测和清理">
+          <outline text="定义">
+            <outline text="文件系统里还存在，但已不被任何 Paimon snapshot 引用的文件"/>
+          </outline>
+          <outline text="常见原因">
+            <outline text="异常删除失败"/>
+            <outline text="任务中断"/>
+            <outline text="提交过程遗留"/>
+          </outline>
+          <outline text="官方做法">
+            <outline text="CALL sys.remove_orphan_files(...)"/>
+          </outline>
+          <outline text="生产建议">
+            <outline text="先 dry run 再正式删除"/>
+            <outline text="保留时间保护，避免误删刚写入文件"/>
+            <outline text="确认没有长时间运行但尚未提交的写作业"/>
+          </outline>
+        </outline>
+      </outline>
+      <outline text="系统表与 Catalog">
+        <outline text="系统表在哪 和 catalog 类型有关吗">
+          <outline text="表级系统表">
+            <outline text="table$snapshots"/>
+            <outline text="table$schemas"/>
+            <outline text="table$files"/>
+            <outline text="table$manifests"/>
+            <outline text="table$options"/>
+            <outline text="table$consumers"/>
+          </outline>
+          <outline text="全局系统表">
+            <outline text="sys.catalog_options"/>
+            <outline text="sys.all_table_options"/>
+          </outline>
+          <outline text="怎么回答关系">
+            <outline text="不是有没有系统表的问题，而是系统表背后的元信息从哪里来"/>
+            <outline text="表级系统表主要依赖表路径下元数据文件"/>
+            <outline text="全局系统表还依赖 catalog 级配置与可枚举表信息"/>
+            <outline text="Hive / JDBC / REST catalog 管理方式不同，但对外语义一致"/>
+          </outline>
+        </outline>
+        <outline text="sys 是什么">
+          <outline text="Paimon 暴露的系统数据库入口"/>
+          <outline text="用于查询 catalog 级别或全局统计类系统表"/>
+          <outline text="主要服务于运维、排障、元数据分析"/>
+        </outline>
+        <outline text="常用系统表有哪些">
+          <outline text="table$snapshots：查看快照历史、提交类型、manifest 引用"/>
+          <outline text="table$schemas：查看 schema 演进历史"/>
+          <outline text="table$files：查看某个 snapshot 下的数据文件"/>
+          <outline text="table$manifests：查看 manifest 级元数据"/>
+          <outline text="table$options：查看表参数"/>
+          <outline text="table$consumers：查看消费位点"/>
+          <outline text="sys.catalog_options：查看 catalog 级配置"/>
+          <outline text="sys.all_table_options：查看所有表参数"/>
+        </outline>
+      </outline>
+      <outline text="Flink SQL Procedure Action">
+        <outline text="CALL xxx(...) 是什么语法">
+          <outline text="这是 Flink SQL 的 Call Statement"/>
+          <outline text="用来调用 catalog 提供的 procedure"/>
+          <outline text="Paimon 常见场景包括 compact、rollback、remove_orphan_files 等"/>
+        </outline>
+        <outline text="为什么加了 Paimon 的 jar 包 CALL 就能解析">
+          <outline text="CALL 语法本身来自 Flink SQL，不是 Paimon 发明"/>
+          <outline text="jar 的作用是把 catalog / procedure 实现放进 Flink classpath"/>
+          <outline text="Flink 因此能从 catalog 中发现对应 procedure 并执行"/>
+        </outline>
+        <outline text="CALL system.rebuild_snapshots('my_table') 怎么理解">
+          <outline text="CALL 本身是标准 Flink SQL 语法"/>
+          <outline text="官方常见文档写法更常见的是 CALL sys.xxx(...)"/>
+          <outline text="稳定文档中未检索到 rebuild_snapshots 作为标准内置 procedure"/>
+          <outline text="更稳妥的判断是内部扩展、历史版本能力或自定义 procedure"/>
+          <outline text="面试时不要把它说成官方固定语法"/>
+        </outline>
+        <outline text="怎么给 Paimon / Flink 增加一个新的 call statement">
+          <outline text="本质不是改 SQL 解析器，而是新增 procedure 并由 catalog 暴露"/>
+          <outline text="典型步骤">
+            <outline text="实现 Flink Procedure"/>
+            <outline text="提供公开的 call(...) 方法"/>
+            <outline text="在 catalog 侧通过 getProcedure 暴露出去"/>
+            <outline text="把 jar 放进运行时 classpath"/>
+          </outline>
+        </outline>
+        <outline text="Procedure 和 Action Jar 的区别">
+          <outline text="Procedure">
+            <outline text="偏 SQL 化"/>
+            <outline text="适合在 Flink SQL 里直接 CALL"/>
+            <outline text="更适合轻量运维操作"/>
+          </outline>
+          <outline text="Action Jar">
+            <outline text="偏命令行或作业提交方式"/>
+            <outline text="常见形式是 flink run paimon-flink-action-xxx.jar action-name"/>
+            <outline text="更适合批量任务、离线运维、复杂参数场景"/>
+          </outline>
+        </outline>
+        <outline text="官方有 export-manifest 脚本吗">
+          <outline text="公开稳定文档中未检索到标准内置 procedure / action"/>
+          <outline text="更像内部脚本名或业务工具"/>
+          <outline text="如果面试问到，重点回答 manifest 的作用和遍历链路"/>
+        </outline>
+      </outline>
+      <outline text="运维恢复与排障">
+        <outline text="Paimon 如何做回滚">
+          <outline text="核心是基于 snapshot 回滚"/>
+          <outline text="回滚前要确认目标 snapshot 完整可用"/>
+          <outline text="回滚前要评估下游增量消费影响"/>
+          <outline text="必要时同步处理 tag / branch / consumer 位点"/>
+        </outline>
+        <outline text="Paimon 并发写会出现哪些冲突">
+          <outline text="Snapshot conflict">
+            <outline text="别的任务先提交了新 snapshot"/>
+            <outline text="通常可以重试提交"/>
+          </outline>
+          <outline text="Files conflict">
+            <outline text="当前作业想删的文件已被别的作业删掉"/>
+            <outline text="冲突更严重，作业可能失败并重启"/>
+          </outline>
+        </outline>
+        <outline text="怎么回答 Paimon 为什么适合 CDC">
+          <outline text="天然支持主键表、upsert/delete、changelog 消费、快照管理"/>
+          <outline text="能够在存储层承接 CDC 的增删改语义"/>
+          <outline text="不只是把 CDC 数据落成 append-only 文件"/>
+        </outline>
+      </outline>
+      <outline text="面试速记版">
+        <outline text="1 Paimon 适合 CDC、主键更新和实时湖仓场景"/>
+        <outline text="2 主键表底层是 LSM，读性能很依赖 compaction"/>
+        <outline text="3 元数据主链路是 snapshot -&gt; manifest list -&gt; manifest -&gt; data file"/>
+        <outline text="4 系统表是查询元数据的入口，既有 table$xxx，也有 sys.xxx"/>
+        <outline text="5 CALL 是 Flink SQL 的 procedure 语法，jar 提供的是实现，不是语法本身"/>
+        <outline text="6 元数据恢复的核心是恢复引用一致性，不是手工修单个文件"/>
+      </outline>
+      <outline text="资料来源">
+        <outline text="Apache Paimon Basic Concepts"/>
+        <outline text="Apache Paimon System Tables"/>
+        <outline text="Apache Paimon Flink Procedures"/>
+        <outline text="Apache Paimon Manage Snapshots"/>
+        <outline text="Apache Paimon Concurrency Control"/>
+        <outline text="Flink Procedure API"/>
+      </outline>
+    </outline>
+  </body>
+</opml>
