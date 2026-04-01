@@ -141,60 +141,82 @@ public class ClimbStair {
 }
 ```
 # 订单归因到广告点击事件
-有日志uid event(ad=广告点击，ord=订单事件) ts ad_id，需要将订单归因到广告点击事件，
-产出结果是uid event(ord) ad(归因广告) ts
+有日志uid event(ad=广告点击，ord=订单事件) ts ad_id ord_id，需要将订单归因到广告点击事件，
+产出结果是uid event(ord) ord_id ad_id(归因广告) ts(广告时间)
 
-需要注意的是一笔订单可能对应多个广告事件，需要归属到最近的那一条
+需要注意的是一笔订单可能对应多个广告事件，需要归属到最近的那一条， 帮我用hive sql写出来
 ```java
-思路
-1.按照uid分区，使用sum over遇到广告事件则+1，产出一个tag
-2.根据该uid,tag做关联，tag差一个为相关联事件
-
-with tmp_log as (
-select 1 as uid,'ord' as event_type,10 as ts,100 as cz_amt,'' as ad_id
-union all
-select 1 as uid,'ad' as event_type,9 as ts,0 as cz_amt,'a' as ad_id
-union all
-select 1 as uid,'ad' as event_type,8 as ts,0 as cz_amt,'b' as ad_id
-),
-
-开窗打标
-with tmp_tag as (
-select *,sum(case when event_type='ad' then 1 else 0 end) over(partition by uid 
-                                          order by ts desc,event_rn desc
-                                          rows between UNBOUNDED preceding and current row) as gp_tag
+with tmp_ord_ad as (
+select a.ord_id,a.ord_ts,ad_id,row_number() over(partition by ord_id order by ad_ts desc) as rn
 from 
 (
-select uid,event_type,ad_id,ts,1 as event_rn
-from tmp_log
-where event_type='ad'
-
-union all
-
-select uid,event_type,ad_id,ts,0 as event_rn
-from tmp_log
-where event_type='ord'
-) a 
-),
-
-select a.*,b.ad_id
-from
-(
-select *
-from tmp_tag
-where event_type='ord'
-) a 
+select ord_id,ts as ord_ts,uid
+from table
+where event='ord'
+) a
 left join 
 (
-select *
-from tmp_tag
-where event_type='ad'
+select ad_id,ts as ad_ts,uid
+from table
+where event='ad'
 ) b 
 on a.uid=b.uid
-and a.gp_tag=(b.gp_tag-1)
-``` 
-总结，a事件要归因到b上，第一步打标（使用sum(case when event_type='b' then 1 else 0 end) over(partition by uid order by ts desc,event_type desc) as tag)
-第二步，自关联，gp_tag差一个为同一组
+where a.ord_ts>b.ad_ts
+),
 
+select ord_id,ord_ts,ad_id 
+from tmp_ord_ad 
+where rn=1
+
+``` 
+如果是首次归因呢，写法就需要复杂一些，
+比如用户的行为数据为：ad1,ad2,ord1,ad3,ad4,ord5
+```sql
+-- 先对订单取lag，把订单以及订单前一条的订单加工到一行
+WITH ord_log AS (
+    SELECT
+        uid,
+        ord_id,
+        ts AS ord_ts,
+        lag(ts) OVER (PARTITION BY uid ORDER BY ts, ord_id) AS prev_ord_ts
+    FROM your_table
+    WHERE event = 'ord'
+),
+ad_log AS (
+    SELECT
+        uid,
+        ad_id,
+        ts AS ad_ts
+    FROM your_table
+    WHERE event = 'ad'
+),
+matched AS (
+    SELECT
+        o.uid,
+        'ord' AS event,
+        o.ord_id,
+        a.ad_id,
+        a.ad_ts AS ts,
+        row_number() OVER (
+            PARTITION BY o.uid, o.ord_id
+            ORDER BY a.ad_ts DESC
+        ) AS rn
+    FROM ord_log o
+    LEFT JOIN ad_log a
+      ON o.uid = a.uid
+     AND a.ad_ts <= o.ord_ts
+     AND (o.prev_ord_ts IS NULL OR a.ad_ts > o.prev_ord_ts) -- 取ad_ts < ord_ts 并且 (ad_ts > prev_ord_ts or prev_ord_ts is null)
+)
+SELECT
+    uid,
+    event,
+    ord_id,
+    ad_id,
+    ts
+FROM matched
+WHERE rn = 1;
+
+```
+当然，末次归因也可以借助 1.取lag,加工出prev_ts 2.然后取ad_ts between prev和cur 之间来优化性能
 
  
