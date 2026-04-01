@@ -334,3 +334,18 @@ spark.serializer = org.apache.spark.serializer.KryoSerializer
 | 大对象频繁 Full GC | 建议开 G1GC | -XX:+UseG1GC |
 
 结论：600MB Parquet 表广播，Driver 建议 8g，Executor 建议 12~16g。 若集群内存紧张，优先考虑之前讨论的 Bucket Join 方案。
+
+# 广播在spark2和spark3的不同策略
+广播在Spark 2 和 Spark 3 的核心差别是：
+
+- Spark 2 以“静态决策”为主
+- Spark 3 变成了“静态决策 + 运行时自适应”。
+
+具体看：
+- Spark 2 的广播策略
+主要依据编译期统计信息和 spark.sql.autoBroadcastJoinThreshold 决定是否自动广播，这个阈值默认是 10MB。
+用户基本只能显式给 BROADCAST / MAPJOIN hint。
+一旦物理计划定下来，通常就是定死的；如果前期统计信息不准，Spark 2 不会在执行中把 SortMergeJoin 再改成 BroadcastHashJoin。
+- Spark 3 的广播策略
+保留了 Spark 2 的自动广播阈值和 BROADCAST hint。
+Spark 3.2 开始，AQE 默认开启，所以很多“本来不会广播”的 join，在运行时可能被改成广播 join。
