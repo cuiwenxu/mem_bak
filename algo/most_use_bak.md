@@ -215,8 +215,49 @@ SELECT
     ts
 FROM matched
 WHERE rn = 1;
-
+  
 ```
 当然，末次归因也可以借助 1.取lag,加工出prev_ts 2.然后取ad_ts between prev和cur 之间来优化性能
 
- 
+# lag lead函数用法
+lag 和 lead 都是窗口函数，用来取“当前行前一行 / 后一行”的值。
+```sql
+lag(col, offset, default) over (partition by ... order by ...)
+lead(col, offset, default) over (partition by ... order by ...)
+```
+含义：
+
+lag：往前取
+lead：往后取
+offset：偏移几行，默认 1
+default：取不到时返回什么，默认 NULL
+
+# 有uid,score 取分数大于75分位数的uid
+
+```sql
+WITH p AS (
+    SELECT percentile_approx(score, 0.75) AS p75
+    FROM your_table
+)
+SELECT
+    t.uid
+FROM your_table t
+CROSS JOIN p
+WHERE t.score > p.p75;
+```
+
+# 连续登陆N天的用户
+```sql
+select uid,begin_date,count(distinct date) as date_cnt
+from
+(
+select uid,date_sub(date,rn) as begin_date,date
+from
+(
+select uid,date,row_number() over(partition by uid order by date) as rn
+from your_table
+) a 
+) a 
+group by uid,begin_date
+having count(distinct date)>=N
+```
