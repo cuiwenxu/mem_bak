@@ -268,6 +268,28 @@
           <outline text="能够在存储层承接 CDC 的增删改语义"/>
           <outline text="不只是把 CDC 数据落成 append-only 文件"/>
         </outline>
+        <outline text="Paimon 怎么删除数据">
+          <outline text="常见删除方式">
+            <outline text="DELETE FROM ... WHERE ..."/>
+            <outline text="MERGE INTO ... WHEN MATCHED THEN DELETE"/>
+            <outline text="主键表写入 delete record"/>
+            <outline text="整表 / 整分区覆盖或 truncate"/>
+          </outline>
+          <outline text="底层机制">
+            <outline text="先提交一个新的 snapshot"/>
+            <outline text="在新快照里把记录标记删除，或把旧 data file 标记为被删除 / 被替换"/>
+            <outline text="查询最新快照时，这些数据已经不可见"/>
+          </outline>
+          <outline text="物理删除何时发生">
+            <outline text="旧文件可能仍被历史快照引用"/>
+            <outline text="通常要等 snapshot 过期后才真正物理删除"/>
+            <outline text="不再被任何快照引用的残留文件可再用 remove_orphan_files 清理"/>
+          </outline>
+          <outline text="加分点">
+            <outline text="删除的本质是版本级不可见，不是立即删文件"/>
+            <outline text="开启 deletion vectors 时，可记录被删行的位置，查询时过滤"/>
+          </outline>
+        </outline>
       </outline>
       <outline text="面试速记版">
         <outline text="1 Paimon 适合 CDC、主键更新和实时湖仓场景"/>
@@ -276,6 +298,7 @@
         <outline text="4 系统表是查询元数据的入口，既有 table$xxx，也有 sys.xxx"/>
         <outline text="5 CALL 是 Flink SQL 的 procedure 语法，jar 提供的是实现，不是语法本身"/>
         <outline text="6 元数据恢复的核心是恢复引用一致性，不是手工修单个文件"/>
+        <outline text="7 Paimon 删除数据是先生成新 snapshot 让数据不可见，旧文件通常要等快照过期后才物理删除"/>
       </outline>
       <outline text="资料来源">
         <outline text="Apache Paimon Basic Concepts"/>

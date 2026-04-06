@@ -294,6 +294,64 @@ Procedure 更适合轻量运维操作；Action 更适合批量任务、离线运
 
 因为它天然支持主键表、upsert/delete、changelog 消费、快照管理，而且能够在存储层承接 CDC 的增删改语义，不只是把 CDC 数据落成 append-only 文件。
 
+### 24. Paimon 怎么删除数据？
+
+**标准回答**
+
+要分成“逻辑删除”和“物理删除”两层理解。
+
+从 SQL 或写入语义看，常见删除方式有：
+
+- `DELETE FROM ... WHERE ...`
+- `MERGE INTO ... WHEN MATCHED THEN DELETE`
+- 主键表写入一条 delete record
+- 整表 / 整分区覆盖或 truncate
+
+但底层并不是立刻把旧文件从存储上删除，而是先提交一个新的 snapshot，在这个新 snapshot 里把某些记录标记为删除，或者把旧 data file 标记为被删除 / 被替换。查询最新快照时，这些数据就已经不可见了。
+
+真正的物理删除通常发生在后续的 snapshot 过期和文件清理阶段：只有当旧文件不再被任何快照引用时，才会被真正删除。如果还存在文件系统里有残留但不再被任何快照引用的文件，再通过 `remove_orphan_files` 清理。
+
+**面试加分点**
+
+- 删除的本质是“生成新 snapshot，让删除结果在最新版本生效”
+- 历史快照还可能继续引用旧文件，所以物理删除是延迟发生的
+- 如果开启 deletion vectors，可以把被删行的位置单独记录下来，读时再过滤
+
+**一句话总结**
+
+Paimon 删除数据本质上是版本级不可见，而不是立即物理删文件。
+
+**不开 Deletion Vector 和开启 Deletion Vector 的删除链路对比**
+
+```mermaid
+flowchart TB
+    subgraph A["不开 Deletion Vector"]
+        A1["执行 DELETE / upsert / compaction"] --> A2["生成新 snapshot N+1"]
+        A2 --> A3["新 manifest 记录文件增删关系"]
+        A3 --> A4["常见做法：重写数据文件 或 生成新层文件"]
+        A4 --> A5["查询最新 snapshot 时，通过 merge / 文件替换后看不到被删数据"]
+        A5 --> A6["旧文件仍可能被历史 snapshot 引用"]
+        A6 --> A7["snapshot 过期后，再物理删除旧文件"]
+    end
+
+    subgraph B["开启 Deletion Vector"]
+        B1["执行 DELETE / upsert / compaction"] --> B2["生成新 snapshot N+1"]
+        B2 --> B3["新 manifest / index 元数据写入提交结果"]
+        B3 --> B4["不一定立刻重写原 data file"]
+        B4 --> B5["新增或更新 deletion vector 文件"]
+        B5 --> B6["记录某个 data file 中哪些 row position 被删除"]
+        B6 --> B7["查询最新 snapshot 时，先读数据文件，再按 DV 过滤被删行"]
+        B7 --> B8["后续 compaction 再把结果整理进新文件"]
+        B8 --> B9["旧文件在不再被 snapshot 引用后，才物理删除"]
+    end
+```
+
+**图的重点**
+
+- 不开 DV：删除更依赖文件重写、文件替换、读时 merge。
+- 开了 DV：删除信息可以先落成删除位图，读的时候过滤，不一定马上重写整个文件。
+- 两边都会生成新的 snapshot；DV 优化的是删除记录的承载方式，不是替代 snapshot 的版本机制。
+
 ---
 
 ## 八、你当前提纲的面试版答案
@@ -334,6 +392,7 @@ Procedure 更适合轻量运维操作；Action 更适合批量任务、离线运
 4. 系统表是查询元数据的入口，既有 `table$xxx`，也有 `sys.xxx`。
 5. `CALL` 是 Flink SQL procedure 语法，Paimon jar 提供的是实现，不是语法本身。
 6. 元数据恢复的核心是“恢复引用一致性”，不是手工修单个文件。
+7. Paimon 删除数据是先生成新 snapshot 让数据不可见，旧文件通常要等快照过期后才物理删除。
 
 ---
 
